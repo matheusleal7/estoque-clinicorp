@@ -2345,7 +2345,7 @@ ${filteredWeeks.length > 0 ? `
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
       if (!orders.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94A3B8;padding:36px;">Nenhum pedido registrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#94A3B8;padding:36px;">Nenhum pedido registrado.</td></tr>`;
         return;
       }
 
@@ -2367,10 +2367,49 @@ ${filteredWeeks.length > 0 ? `
           <td style="text-align:center;color:#64748B;">${dateVal}</td>
           <td style="text-align:center;font-weight:600;color:#1E293B;">${qtyVal}</td>
           <td style="text-align:center;"><span class="order-badge ${badgeClass}">${badgeLabel}</span></td>
+          <td class="expected-date-cell" data-order-id="${order.id}" style="text-align:center;"></td>
           <td style="text-align:center;color:#64748B;">${fmtDate(order.arrivalDate || '')}</td>
           <td style="text-align:center;color:#64748B;">${order.purchaseValue ? 'R$ ' + Number(order.purchaseValue).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—'}</td>
           <td style="text-align:right;"></td>
         `;
+
+        // Previsão de Recebimento — editable for canAddItems, read-only otherwise
+        const expCell = tr.querySelector('.expected-date-cell');
+        const expVal  = order.expectedDate || '';
+        if (canAddItems) {
+          expCell.style.cssText += 'cursor:pointer;';
+          expCell.title = 'Clique para editar a previsão';
+          const renderExpCell = (editing) => {
+            if (editing) {
+              expCell.innerHTML = '';
+              const inp = document.createElement('input');
+              inp.type = 'date';
+              inp.value = expVal;
+              inp.style.cssText = 'width:120px;padding:4px 8px;border:1.5px solid #E85D04;border-radius:6px;font-size:12px;font-family:inherit;color:#1E293B;outline:none;';
+              expCell.appendChild(inp);
+              inp.focus();
+              const save = () => {
+                const newVal = inp.value;
+                db.ref('clinicorp/purchaseOrders/' + order.id).update({ expectedDate: newVal || null });
+                addLog('Pedidos', order.itemName, `Previsão de recebimento ${newVal ? 'definida para ' + fmtDate(newVal) : 'removida'}`);
+              };
+              inp.addEventListener('change', save);
+              inp.addEventListener('blur', () => { save(); renderExpCell(false); });
+              inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') renderExpCell(false); });
+            } else {
+              const current = order.expectedDate || '';
+              expCell.innerHTML = current
+                ? `<span style="color:#1E293B;">${fmtDate(current)}</span> <span style="font-size:11px;color:#E85D04;cursor:pointer;" title="Editar">✎</span>`
+                : `<span style="color:#CBD5E1;font-size:12px;">— definir</span>`;
+            }
+          };
+          renderExpCell(false);
+          expCell.addEventListener('click', e => { if (!expCell.querySelector('input')) renderExpCell(true); });
+        } else {
+          expCell.innerHTML = expVal
+            ? `<span style="color:#1E293B;">${fmtDate(expVal)}</span>`
+            : `<span style="color:#CBD5E1;">—</span>`;
+        }
 
         const actionCell = tr.querySelector('td:last-child');
         if (isPending && canAddItems) {
@@ -2507,6 +2546,11 @@ ${filteredWeeks.length > 0 ? `
               <input id="ao-qty" type="number" min="1" placeholder="0" style="${inputStyle}"
                 onfocus="this.style.borderColor='#E85D04'" onblur="this.style.borderColor='#E2E8F0'">
             </div>
+            <div style="grid-column:1/-1;">
+              <label style="${labelStyle}">Previsão de Recebimento</label>
+              <input id="ao-expected" type="date" style="${inputStyle}"
+                onfocus="this.style.borderColor='#E85D04'" onblur="this.style.borderColor='#E2E8F0'">
+            </div>
             <p id="ao-err" style="grid-column:1/-1;color:#EF4444;font-size:12px;margin:0;display:none;">Preencha todos os campos obrigatórios (*).</p>
           </div>
           <div style="padding:14px 24px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #F1F5F9;">
@@ -2521,20 +2565,22 @@ ${filteredWeeks.length > 0 ? `
       overlay.querySelector('#ao-cancel').addEventListener('click', close);
       overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
       overlay.querySelector('#ao-save').addEventListener('click', () => {
-        const itemSel = overlay.querySelector('#ao-item');
-        const ticket  = overlay.querySelector('#ao-ticket').value.trim();
-        const date    = overlay.querySelector('#ao-date').value;
-        const qty     = parseInt(overlay.querySelector('#ao-qty').value);
-        const errEl   = overlay.querySelector('#ao-err');
+        const itemSel    = overlay.querySelector('#ao-item');
+        const ticket     = overlay.querySelector('#ao-ticket').value.trim();
+        const date       = overlay.querySelector('#ao-date').value;
+        const qty        = parseInt(overlay.querySelector('#ao-qty').value);
+        const expected   = overlay.querySelector('#ao-expected').value;
+        const errEl      = overlay.querySelector('#ao-err');
         if (!itemSel.value || !date || isNaN(qty) || qty < 1) { errEl.style.display = 'block'; return; }
         const order = {
-          id:        Date.now().toString(),
-          itemId:    itemSel.value,
-          itemName:  itemSel.options[itemSel.selectedIndex].dataset.name,
+          id:           Date.now().toString(),
+          itemId:       itemSel.value,
+          itemName:     itemSel.options[itemSel.selectedIndex].dataset.name,
           ticket, date, qty,
-          status:    'pending',
-          createdAt: new Date().toISOString(),
-          createdBy: currentRole
+          expectedDate: expected || null,
+          status:       'pending',
+          createdAt:    new Date().toISOString(),
+          createdBy:    currentRole
         };
         db.ref('clinicorp/purchaseOrders/' + order.id).set(order);
         addLog('Pedidos', order.itemName, `Pedido criado: ${qty}x ${order.itemName} (ticket: ${ticket || 'N/A'})`);
