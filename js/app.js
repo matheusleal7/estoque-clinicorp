@@ -318,10 +318,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------------------------
     const CHANGELOG = [
       {
+        version: '0.94',
+        date: '23/06/2026',
+        title: 'Exportações, painel de valor e identidade visual',
+        latest: true,
+        changes: [
+          { tag: 'new',    text: 'PDF com layout visual completo: KPIs, grid de insumos, tabela do período e alertas em destaque' },
+          { tag: 'new',    text: 'E-mail com texto estruturado em seções: resumo, alertas, estoque por item e histórico' },
+          { tag: 'new',    text: 'Modal de seleção de período para PDF e E-mail: semana atual, última semana, mês atual ou mês específico' },
+          { tag: 'fix',    text: 'Card "Valor atual de insumos em estoque" agora exibe o valor correto em tempo real' },
+          { tag: 'change', text: 'Nome do sistema na sidebar alterado para ClinipayEstoque' },
+        ]
+      },
+      {
         version: '0.93',
         date: '23/06/2026',
         title: 'Relatório, mini cards e melhorias gerais',
-        latest: true,
+        latest: false,
         changes: [
           { tag: 'fix',    text: 'Filtro de período (4/8/12/Todas semanas) voltou a aparecer no Relatório' },
           { tag: 'fix',    text: 'Tooltip do gráfico agora mostra apenas o insumo com o cursor' },
@@ -330,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
           { tag: 'new',    text: 'Ordem dos mini cards reflete a ordem das colunas na tabela' },
           { tag: 'new',    text: 'Sub-aba Histórico de Compras adicionada em Custos' },
           { tag: 'new',    text: 'Atualização automática do sistema: overlay avisa quando nova versão está disponível' },
-          { tag: 'new',    text: 'Card "Valor atual de insumos em estoque" exibe o valor total do inventário em tempo real' },
+          { tag: 'new',    text: 'Card "Valor atual de insumos em estoque" adicionado ao painel principal' },
           { tag: 'fix',    text: 'Botões E-mail, PDF e CSV voltaram a funcionar no Estoque Central' },
         ]
       },
