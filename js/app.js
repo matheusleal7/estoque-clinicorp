@@ -320,15 +320,18 @@ document.addEventListener('DOMContentLoaded', () => {
       {
         version: '0.93',
         date: '23/06/2026',
-        title: 'Relatório e mini cards',
+        title: 'Relatório, mini cards e melhorias gerais',
         latest: true,
         changes: [
           { tag: 'fix',    text: 'Filtro de período (4/8/12/Todas semanas) voltou a aparecer no Relatório' },
           { tag: 'fix',    text: 'Tooltip do gráfico agora mostra apenas o insumo com o cursor' },
-          { tag: 'change', text: 'Título da aba alterado para "Relatório"' },
+          { tag: 'change', text: 'Título da aba de gráficos alterado para "Relatório"' },
           { tag: 'new',    text: 'Mini cards do Estoque Central podem ser reordenados (Admin)' },
           { tag: 'new',    text: 'Ordem dos mini cards reflete a ordem das colunas na tabela' },
           { tag: 'new',    text: 'Sub-aba Histórico de Compras adicionada em Custos' },
+          { tag: 'new',    text: 'Atualização automática do sistema: overlay avisa quando nova versão está disponível' },
+          { tag: 'new',    text: 'Card "Valor atual de insumos em estoque" exibe o valor total do inventário em tempo real' },
+          { tag: 'fix',    text: 'Botões E-mail, PDF e CSV voltaram a funcionar no Estoque Central' },
         ]
       },
       {
@@ -797,6 +800,332 @@ document.addEventListener('DOMContentLoaded', () => {
       return items.filter(it => !inactiveItems.has(it.id));
     }
 
+    // ── Meses em português ───────────────────────────────────
+    const MESES_PT   = { 'janeiro':1,'fevereiro':2,'março':3,'abril':4,'maio':5,'junho':6,
+                         'julho':7,'agosto':8,'setembro':9,'outubro':10,'novembro':11,'dezembro':12 };
+    const MESES_NOME = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                        'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+    function getWeekMonth(w) {
+      if (!w.date) return null;
+      const m = w.date.match(/de\s+([a-záçã]+)/i);
+      return m ? (MESES_PT[m[1].toLowerCase()] || null) : null;
+    }
+
+    function getAvailableMonths() {
+      const seen = new Map();
+      weeksData.forEach(w => {
+        const mon = getWeekMonth(w);
+        if (mon && !seen.has(mon)) seen.set(mon, MESES_NOME[mon - 1]);
+      });
+      return [...seen.entries()].sort((a, b) => a[0] - b[0]);
+    }
+
+    function getPeriodLabel(period, monthNum) {
+      const yr = new Date().getFullYear();
+      if (period === 'current-week')  return 'Semana Atual';
+      if (period === 'last-week')     return 'Última Semana';
+      if (period === 'current-month') return `${MESES_NOME[new Date().getMonth()]} de ${yr}`;
+      if (period === 'select-month')  return `${MESES_NOME[monthNum - 1]} de ${yr}`;
+      return '';
+    }
+
+    function filterWeeksByPeriod(period, monthNum) {
+      const filled = weeksData.filter(w =>
+        items.some(it => { const v = w.values[it.id]; return v !== undefined && v !== '' && v !== '-'; })
+      );
+      if (period === 'current-week')  return filled.slice(-1);
+      if (period === 'last-week')     return filled.length >= 2 ? [filled[filled.length - 2]] : filled.slice(-1);
+      if (period === 'current-month') return weeksData.filter(w => getWeekMonth(w) === new Date().getMonth() + 1);
+      if (period === 'select-month')  return weeksData.filter(w => getWeekMonth(w) === monthNum);
+      return weeksData;
+    }
+
+    // ── Modal de seleção de período ──────────────────────────
+    function showExportModal(type) {
+      const existing = document.getElementById('export-period-modal');
+      if (existing) existing.remove();
+
+      const availableMonths = getAvailableMonths();
+      const curMonthNum     = new Date().getMonth() + 1;
+      const curMonthName    = MESES_NOME[new Date().getMonth()];
+
+      const monthOpts = availableMonths
+        .map(([num, name]) => `<option value="${num}"${num === curMonthNum ? ' selected' : ''}>${name}</option>`)
+        .join('');
+
+      const overlay = document.createElement('div');
+      overlay.id = 'export-period-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;';
+
+      const icon  = type === 'pdf' ? '📄' : '✉️';
+      const title = type === 'pdf' ? 'Exportar PDF' : 'Exportar por E-mail';
+      const btnLabel = type === 'pdf' ? 'Gerar PDF' : 'Abrir E-mail';
+
+      const radioStyle = 'display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid #E2E8F0;border-radius:9px;cursor:pointer;transition:border-color .15s;';
+
+      overlay.innerHTML = `
+        <div style="background:#fff;border-radius:16px;padding:28px 30px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,.22);">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-size:22px;">${icon}</span>
+            <h3 style="margin:0;font-size:16px;font-weight:700;color:#0F172A;">${title}</h3>
+            <button id="epm-close" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:20px;color:#94A3B8;line-height:1;">×</button>
+          </div>
+          <p style="margin:0 0 16px;font-size:12px;color:#64748B;">Selecione o período do relatório:</p>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
+            <label id="epm-l1" style="${radioStyle}">
+              <input type="radio" name="epm-period" value="current-week" checked style="accent-color:#E85D04;">
+              <span style="font-size:13px;color:#0F172A;font-weight:500;">Semana atual</span>
+            </label>
+            <label id="epm-l2" style="${radioStyle}">
+              <input type="radio" name="epm-period" value="last-week" style="accent-color:#E85D04;">
+              <span style="font-size:13px;color:#0F172A;font-weight:500;">Última semana registrada</span>
+            </label>
+            <label id="epm-l3" style="${radioStyle}">
+              <input type="radio" name="epm-period" value="current-month" style="accent-color:#E85D04;">
+              <span style="font-size:13px;color:#0F172A;font-weight:500;">Mês atual &nbsp;<span style="color:#64748B;">(${curMonthName})</span></span>
+            </label>
+            <label id="epm-l4" style="${radioStyle}">
+              <input type="radio" name="epm-period" value="select-month" style="accent-color:#E85D04;">
+              <span style="font-size:13px;color:#0F172A;font-weight:500;">Selecionar mês:</span>
+              <select id="epm-month" style="border:1px solid #E2E8F0;border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;color:#0F172A;">${monthOpts}</select>
+            </label>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button id="epm-cancel" style="flex:1;padding:10px;border:1.5px solid #E2E8F0;border-radius:9px;background:#fff;color:#64748B;font-size:13px;font-family:inherit;cursor:pointer;">Cancelar</button>
+            <button id="epm-confirm" style="flex:1;padding:10px;border:none;border-radius:9px;background:#E85D04;color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;">${btnLabel}</button>
+          </div>
+        </div>`;
+
+      document.body.appendChild(overlay);
+
+      const close = () => overlay.remove();
+      overlay.querySelector('#epm-close').addEventListener('click', close);
+      overlay.querySelector('#epm-cancel').addEventListener('click', close);
+      overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+      // Highlight active label
+      const labels = ['epm-l1','epm-l2','epm-l3','epm-l4'];
+      const highlightActive = () => {
+        labels.forEach(id => {
+          const lbl = overlay.querySelector(`#${id}`);
+          const inp = lbl.querySelector('input');
+          lbl.style.borderColor = inp.checked ? '#E85D04' : '#E2E8F0';
+          lbl.style.background  = inp.checked ? '#FFF7F0' : '#fff';
+        });
+      };
+      overlay.querySelectorAll('input[name="epm-period"]').forEach(r => r.addEventListener('change', highlightActive));
+      highlightActive();
+
+      overlay.querySelector('#epm-confirm').addEventListener('click', () => {
+        const period   = overlay.querySelector('input[name="epm-period"]:checked').value;
+        const monthNum = parseInt(overlay.querySelector('#epm-month').value);
+        const filtered = filterWeeksByPeriod(period, monthNum);
+        close();
+        if (type === 'pdf') generatePDF(filtered, period, monthNum);
+        else                generateEmail(filtered, period, monthNum);
+      });
+    }
+
+    // ── PDF ─────────────────────────────────────────────────
+    function generatePDF(filteredWeeks, period, monthNum) {
+      const activeItems   = getActiveItems();
+      const now           = new Date().toLocaleDateString('pt-BR');
+      const periodLabel   = getPeriodLabel(period, monthNum);
+      const stockDetails  = getCurrentStockWithDetails();
+      const alertItems    = stockDetails.filter(d => d.isAlert && !d.inactive);
+      const currentRole   = localStorage.getItem('clinicorp_role') || '—';
+
+      let totalValue = 0;
+      stockDetails.forEach(d => {
+        const cost = costsData[d.id];
+        const qty  = parseFloat(d.value);
+        if (cost && cost.unitValue && !isNaN(qty)) totalValue += cost.unitValue * qty;
+      });
+
+      const weeksRows = filteredWeeks.map(w =>
+        `<tr>
+          <td class="lft">${w.week || ''}</td>
+          <td class="lft date-col">${w.date || ''}</td>
+          ${activeItems.map(it => {
+            const v   = w.values[it.id];
+            const val = (v === undefined || v === '' || v === '-') ? '—' : v;
+            const bad = it.min != null && val !== '—' && Number(val) < it.min;
+            return `<td class="${bad ? 'alert-td' : ''}">${val}</td>`;
+          }).join('')}
+        </tr>`
+      ).join('');
+
+      const itemCards = activeItems.map(it => {
+        const d       = stockDetails.find(s => s.id === it.id) || {};
+        const val     = d.value ?? '—';
+        const isAlert = d.isAlert;
+        const cost    = costsData[it.id];
+        const unit    = cost?.unitValue ? cost.unitValue.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
+        const total   = cost?.unitValue && val !== '—'
+          ? (cost.unitValue * parseFloat(val)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
+        return `
+          <div class="ic ${isAlert ? 'ic-alert' : ''}">
+            <div class="ic-name">${it.name}</div>
+            <div class="ic-qty ${isAlert ? 'ic-red' : ''}">${val}</div>
+            <div class="ic-sub">Mín: ${it.min ?? '—'} &nbsp;|&nbsp; Unit: ${unit}</div>
+            <div class="ic-total">${total}</div>
+          </div>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Estoque CliniPay — ${periodLabel}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:11px;color:#1E293B;padding:24px;background:#fff}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #E85D04;margin-bottom:18px}
+.logo{font-size:20px;font-weight:800;color:#E85D04}.logo span{color:#1E293B}
+.meta{text-align:right;color:#64748B;font-size:10px;line-height:1.7}
+.period{font-size:14px;font-weight:700;color:#0F172A}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.kpi{background:#F8FAFC;border-radius:8px;padding:11px 14px;border-left:3px solid #E85D04}
+.kpi-lbl{font-size:9px;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.kpi-val{font-size:19px;font-weight:800;color:#0F172A;margin-top:2px}
+.kpi-val.red{color:#EF4444}
+.sec-title{font-size:12px;font-weight:700;color:#0F172A;margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid #E2E8F0}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:18px}
+.ic{border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px}
+.ic-alert{border-color:#FCA5A5;background:#FFF5F5}
+.ic-name{font-size:9px;font-weight:600;color:#64748B;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic-qty{font-size:21px;font-weight:800;color:#0F172A}
+.ic-red{color:#EF4444}
+.ic-sub{font-size:8.5px;color:#94A3B8;margin-top:1px}
+.ic-total{font-size:10px;font-weight:600;color:#E85D04;margin-top:3px}
+.alerts-box{background:#FFF5F5;border:1px solid #FCA5A5;border-radius:8px;padding:11px 14px;margin-bottom:18px}
+.alerts-box h3{font-size:11px;color:#DC2626;font-weight:700;margin-bottom:6px}
+.alert-row{font-size:10px;color:#991B1B;padding:2px 0}
+table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:18px}
+th{background:#F8FAFC;color:#64748B;font-weight:700;padding:7px 5px;text-align:center;border:1px solid #E2E8F0;font-size:8.5px}
+td{padding:6px 5px;text-align:center;border:1px solid #F1F5F9}
+td.lft{text-align:left;color:#64748B}
+td.date-col{font-size:9.5px;white-space:nowrap}
+td.alert-td{color:#EF4444;font-weight:700}
+tr:nth-child(even) td{background:#FAFAFA}
+.min-row td{background:#FFF7F0!important;color:#E85D04;font-weight:700}
+.footer{margin-top:16px;padding-top:10px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:8.5px;color:#94A3B8}
+@media print{@page{margin:14mm}body{padding:0}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="logo">Clinicorp<span>Insumos</span></div>
+    <div style="font-size:10px;color:#64748B;margin-top:3px;">Relatório de Controle de Estoque</div>
+  </div>
+  <div class="meta">
+    <div class="period">${periodLabel}</div>
+    <div>Gerado em ${now}</div>
+    <div>Usuário: ${currentRole}</div>
+  </div>
+</div>
+<div class="kpis">
+  <div class="kpi"><div class="kpi-lbl">Insumos Ativos</div><div class="kpi-val">${activeItems.length}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Alertas</div><div class="kpi-val ${alertItems.length > 0 ? 'red' : ''}">${alertItems.length}</div></div>
+  <div class="kpi"><div class="kpi-lbl">Valor do Inventário</div><div class="kpi-val">${totalValue.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</div></div>
+</div>
+${alertItems.length > 0 ? `<div class="alerts-box"><h3>⚠️ Estoque abaixo do mínimo</h3>${alertItems.map(d=>`<div class="alert-row">• ${d.name}: ${d.value} un. &nbsp;(mínimo: ${d.min})</div>`).join('')}</div>` : ''}
+<div class="sec-title">Estoque Atual por Insumo</div>
+<div class="grid">${itemCards}</div>
+${filteredWeeks.length > 0 ? `
+<div class="sec-title">Histórico do Período — ${filteredWeeks.length} semana(s)</div>
+<table>
+  <thead><tr><th style="text-align:left">Semana</th><th style="text-align:left">Data</th>${activeItems.map(it=>`<th>${it.name}</th>`).join('')}</tr></thead>
+  <tbody>
+    <tr class="min-row"><td class="lft" colspan="2">Qtd. Mínima</td>${activeItems.map(it=>`<td>${it.min??'—'}</td>`).join('')}</tr>
+    ${weeksRows}
+  </tbody>
+</table>` : ''}
+<div class="footer"><span>Clinicorp — Operações CliniPay</span><span>matheusleal7.github.io/estoque-clinicorp</span></div>
+</body></html>`;
+
+      const win = window.open('', '_blank');
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 500);
+    }
+
+    // ── E-MAIL ───────────────────────────────────────────────
+    function generateEmail(filteredWeeks, period, monthNum) {
+      const activeItems  = getActiveItems();
+      const now          = new Date().toLocaleDateString('pt-BR');
+      const periodLabel  = getPeriodLabel(period, monthNum);
+      const stockDetails = getCurrentStockWithDetails();
+      const alertItems   = stockDetails.filter(d => d.isAlert && !d.inactive);
+
+      let totalValue = 0;
+      stockDetails.forEach(d => {
+        const cost = costsData[d.id];
+        const qty  = parseFloat(d.value);
+        if (cost && cost.unitValue && !isNaN(qty)) totalValue += cost.unitValue * qty;
+      });
+
+      const div = '─'.repeat(52);
+      let body  = '';
+
+      body += `RELATÓRIO DE ESTOQUE — CLINICORP INSUMOS\n`;
+      body += `${div}\n`;
+      body += `Período   : ${periodLabel}\n`;
+      body += `Gerado em : ${now}\n`;
+      body += `${div}\n\n`;
+
+      body += `RESUMO GERAL\n`;
+      body += `  Insumos monitorados  :  ${activeItems.length}\n`;
+      body += `  Alertas ativos       :  ${alertItems.length}${alertItems.length > 0 ? '  ⚠️' : '  ✅'}\n`;
+      body += `  Valor do inventário  :  ${totalValue.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}\n\n`;
+
+      if (alertItems.length > 0) {
+        body += `⚠️  ATENÇÃO — ITENS ABAIXO DO MÍNIMO\n`;
+        body += `${div}\n`;
+        alertItems.forEach(d => {
+          body += `  • ${d.name}\n`;
+          body += `      Quantidade atual : ${d.value}  |  Mínimo exigido : ${d.min}\n`;
+        });
+        body += `\n`;
+      }
+
+      body += `ESTOQUE ATUAL POR INSUMO\n`;
+      body += `${div}\n`;
+      activeItems.forEach(it => {
+        const d     = stockDetails.find(s => s.id === it.id) || {};
+        const val   = d.value ?? '—';
+        const alert = d.isAlert;
+        const cost  = costsData[it.id];
+        const total = cost?.unitValue && val !== '—'
+          ? (cost.unitValue * parseFloat(val)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
+        body += `  ${alert ? '⚠️' : '✅'}  ${it.name}\n`;
+        body += `       Qtd: ${val}   |   Mín: ${it.min??'—'}   |   Valor total: ${total}\n\n`;
+      });
+
+      if (filteredWeeks.length > 0) {
+        body += `HISTÓRICO DE SEMANAS — ${periodLabel.toUpperCase()}\n`;
+        body += `${div}\n`;
+        filteredWeeks.forEach(w => {
+          body += `  ${w.week || ''}${w.date ? `  —  ${w.date}` : ''}\n`;
+          activeItems.forEach(it => {
+            const v = w.values[it.id];
+            if (v !== undefined && v !== '' && v !== '-') {
+              const bad = it.min != null && Number(v) < it.min;
+              body += `     ${it.name}: ${v}${bad ? '  ⚠️' : ''}\n`;
+            }
+          });
+          body += `\n`;
+        });
+      }
+
+      body += `${div}\n`;
+      body += `Acesse o sistema completo:\n`;
+      body += `https://matheusleal7.github.io/estoque-clinicorp/\n\n`;
+      body += `Clinicorp — Operações CliniPay`;
+
+      const subject = encodeURIComponent(`Relatório de Estoque CliniPay — ${periodLabel}`);
+      window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`;
+    }
+
+    // ── Botões ───────────────────────────────────────────────
     function buildCSV() {
       const activeItems = getActiveItems();
       const header = ['Semana', 'Data', ...activeItems.map(it => it.name)];
@@ -828,83 +1157,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const btnPDF = document.getElementById('btn-export-pdf');
-    if (btnPDF) {
-      btnPDF.addEventListener('click', () => {
-        const activeItems = getActiveItems();
-        const now = new Date().toLocaleDateString('pt-BR');
-
-        const rows = weeksData.map(w => {
-          const tds = activeItems.map(it => {
-            const v = w.values[it.id];
-            const val = (v === undefined || v === '' || v === '-') ? '—' : v;
-            const isAlert = it.min != null && Number(val) < it.min && val !== '—';
-            return `<td style="${isAlert ? 'color:#EF4444;font-weight:600;' : ''}">${val}</td>`;
-          }).join('');
-          return `<tr><td>${w.week || ''}</td><td>${w.date || ''}</td>${tds}</tr>`;
-        }).join('');
-
-        const minRow = `<tr style="background:#F8FAFC;font-weight:600;">
-          <td colspan="2">Qtd. Mínima</td>
-          ${activeItems.map(it => `<td>${it.min ?? '—'}</td>`).join('')}
-        </tr>`;
-
-        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-          <title>Estoque CliniPay — ${now}</title>
-          <style>
-            body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }
-            h2 { color: #E85D04; margin-bottom: 4px; }
-            p  { color: #64748B; margin: 0 0 12px; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #E2E8F0; padding: 5px 8px; text-align: center; }
-            th { background: #F8FAFC; color: #0F172A; font-weight: 600; }
-            td:first-child, td:nth-child(2) { text-align: left; }
-          </style>
-        </head><body>
-          <h2>Controle de Estoque — Insumos CliniPay</h2>
-          <p>Gerado em ${now}</p>
-          <table>
-            <thead><tr>
-              <th>Semana</th><th>Data</th>
-              ${activeItems.map(it => `<th>${it.name}</th>`).join('')}
-            </tr></thead>
-            <tbody>${minRow}${rows}</tbody>
-          </table>
-        </body></html>`;
-
-        const win = window.open('', '_blank');
-        win.document.write(html);
-        win.document.close();
-        win.focus();
-        win.print();
-        win.close();
-      });
-    }
+    if (btnPDF) btnPDF.addEventListener('click', () => showExportModal('pdf'));
 
     const btnEmail = document.getElementById('btn-share-email');
-    if (btnEmail) {
-      btnEmail.addEventListener('click', () => {
-        const activeItems = getActiveItems();
-        const now = new Date().toLocaleDateString('pt-BR');
-        const stockDetails = getCurrentStockWithDetails();
-
-        const lines = activeItems.map(it => {
-          const d = stockDetails.find(s => s.id === it.id);
-          const cur = d ? d.current : '—';
-          const alert = d && d.isAlert ? ' ⚠️ ABAIXO DO MÍNIMO' : '';
-          return `  ${it.name}: ${cur} (mín: ${it.min ?? '—'})${alert}`;
-        }).join('\n');
-
-        const alerts = stockDetails.filter(d => d.isAlert).length;
-        const subject = encodeURIComponent(`Relatório de Estoque CliniPay — ${now}`);
-        const body = encodeURIComponent(
-          `Relatório de Estoque — ${now}\n\n` +
-          `Alertas ativos: ${alerts}\n\n` +
-          `ESTOQUE ATUAL:\n${lines}\n\n` +
-          `Acesse o sistema: https://matheusleal7.github.io/estoque-clinicorp/`
-        );
-        window.location.href = `mailto:?subject=${subject}&body=${body}`;
-      });
-    }
+    if (btnEmail) btnEmail.addEventListener('click', () => showExportModal('email'));
 
     // --------------------------------------------------------
     // DASHBOARD — CARDS
