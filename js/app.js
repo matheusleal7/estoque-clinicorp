@@ -2310,6 +2310,15 @@ ${filteredWeeks.length > 0 ? `
     // --------------------------------------------------------
     // PEDIDOS DE COMPRA
     // --------------------------------------------------------
+    function fmtDate(d) {
+      if (!d || d === '—') return '—';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        const [y, m, day] = d.split('-');
+        return `${day}/${m}/${y}`;
+      }
+      return d; // already formatted or unknown format
+    }
+
     function renderPurchaseOrders() {
       const tbody = document.getElementById('orders-body');
       if (!tbody) return;
@@ -2347,7 +2356,8 @@ ${filteredWeeks.length > 0 ? `
 
         // support both old field names (ticketNumber/orderDate/requestedQty) and new (ticket/date/qty)
         const ticketVal = order.ticketNumber || order.ticket || '—';
-        const dateVal   = order.orderDate   || order.date   || '—';
+        const rawDate   = order.orderDate   || order.date   || '';
+        const dateVal   = rawDate ? fmtDate(rawDate) : '—';
         const qtyVal    = order.requestedQty != null ? order.requestedQty : (order.qty != null ? order.qty : '—');
 
         const tr = document.createElement('tr');
@@ -2357,7 +2367,7 @@ ${filteredWeeks.length > 0 ? `
           <td style="text-align:center;color:#64748B;">${dateVal}</td>
           <td style="text-align:center;font-weight:600;color:#1E293B;">${qtyVal}</td>
           <td style="text-align:center;"><span class="order-badge ${badgeClass}">${badgeLabel}</span></td>
-          <td style="text-align:center;color:#64748B;">${order.arrivalDate || '—'}</td>
+          <td style="text-align:center;color:#64748B;">${fmtDate(order.arrivalDate || '')}</td>
           <td style="text-align:center;color:#64748B;">${order.purchaseValue ? 'R$ ' + Number(order.purchaseValue).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—'}</td>
           <td style="text-align:right;"></td>
         `;
