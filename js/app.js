@@ -658,6 +658,8 @@ document.addEventListener('DOMContentLoaded', () => {
           initialCosts.forEach(item => { costsData[item.id] = item; });
           db.ref('clinicorp/costs').set(costsData);
         }
+        // Atualiza card de valor do estoque sempre que custos mudam
+        renderCards();
         if (document.getElementById('costs-view')?.classList.contains('active')) {
           renderCosts();
         }
