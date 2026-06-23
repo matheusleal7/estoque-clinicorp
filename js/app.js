@@ -926,8 +926,9 @@ document.addEventListener('DOMContentLoaded', () => {
       let totalInventoryValue = 0;
       stockDetails.forEach(d => {
         const cost = costsData[d.id];
-        if (cost && cost.unitValue && d.current != null) {
-          totalInventoryValue += cost.unitValue * d.current;
+        const qty  = parseFloat(d.value);
+        if (cost && cost.unitValue && !isNaN(qty) && qty > 0) {
+          totalInventoryValue += cost.unitValue * qty;
         }
       });
       cardWeeks.textContent = totalInventoryValue.toLocaleString('pt-BR', {
