@@ -1135,7 +1135,7 @@ ${filteredWeeks.length > 0 ? `
       body += `Clinicorp — Operações CliniPay`;
 
       const subject = encodeURIComponent(`Relatório de Estoque CliniPay — ${periodLabel}`);
-      window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`;
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${encodeURIComponent(body)}`, '_blank');
     }
 
     // ── Botões ───────────────────────────────────────────────
