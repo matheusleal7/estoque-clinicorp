@@ -789,6 +789,122 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --------------------------------------------------------
+    // EXPORT — CSV, PDF, E-MAIL
+    // --------------------------------------------------------
+    function getActiveItems() {
+      return items.filter(it => !inactiveItems.has(it.id));
+    }
+
+    function buildCSV() {
+      const activeItems = getActiveItems();
+      const header = ['Semana', 'Data', ...activeItems.map(it => it.name)];
+      const rows = weeksData.map(w => [
+        w.week || '',
+        w.date  || '',
+        ...activeItems.map(it => {
+          const v = w.values[it.id];
+          return (v === undefined || v === '' || v === '-') ? '' : v;
+        })
+      ]);
+      return [header, ...rows]
+        .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+        .join('\r\n');
+    }
+
+    const btnCSV = document.getElementById('btn-export');
+    if (btnCSV) {
+      btnCSV.addEventListener('click', () => {
+        const csv  = buildCSV();
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `estoque-clinicorp-${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    const btnPDF = document.getElementById('btn-export-pdf');
+    if (btnPDF) {
+      btnPDF.addEventListener('click', () => {
+        const activeItems = getActiveItems();
+        const now = new Date().toLocaleDateString('pt-BR');
+
+        const rows = weeksData.map(w => {
+          const tds = activeItems.map(it => {
+            const v = w.values[it.id];
+            const val = (v === undefined || v === '' || v === '-') ? '—' : v;
+            const isAlert = it.min != null && Number(val) < it.min && val !== '—';
+            return `<td style="${isAlert ? 'color:#EF4444;font-weight:600;' : ''}">${val}</td>`;
+          }).join('');
+          return `<tr><td>${w.week || ''}</td><td>${w.date || ''}</td>${tds}</tr>`;
+        }).join('');
+
+        const minRow = `<tr style="background:#F8FAFC;font-weight:600;">
+          <td colspan="2">Qtd. Mínima</td>
+          ${activeItems.map(it => `<td>${it.min ?? '—'}</td>`).join('')}
+        </tr>`;
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+          <title>Estoque CliniPay — ${now}</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }
+            h2 { color: #E85D04; margin-bottom: 4px; }
+            p  { color: #64748B; margin: 0 0 12px; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #E2E8F0; padding: 5px 8px; text-align: center; }
+            th { background: #F8FAFC; color: #0F172A; font-weight: 600; }
+            td:first-child, td:nth-child(2) { text-align: left; }
+          </style>
+        </head><body>
+          <h2>Controle de Estoque — Insumos CliniPay</h2>
+          <p>Gerado em ${now}</p>
+          <table>
+            <thead><tr>
+              <th>Semana</th><th>Data</th>
+              ${activeItems.map(it => `<th>${it.name}</th>`).join('')}
+            </tr></thead>
+            <tbody>${minRow}${rows}</tbody>
+          </table>
+        </body></html>`;
+
+        const win = window.open('', '_blank');
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        win.print();
+        win.close();
+      });
+    }
+
+    const btnEmail = document.getElementById('btn-share-email');
+    if (btnEmail) {
+      btnEmail.addEventListener('click', () => {
+        const activeItems = getActiveItems();
+        const now = new Date().toLocaleDateString('pt-BR');
+        const stockDetails = getCurrentStockWithDetails();
+
+        const lines = activeItems.map(it => {
+          const d = stockDetails.find(s => s.id === it.id);
+          const cur = d ? d.current : '—';
+          const alert = d && d.isAlert ? ' ⚠️ ABAIXO DO MÍNIMO' : '';
+          return `  ${it.name}: ${cur} (mín: ${it.min ?? '—'})${alert}`;
+        }).join('\n');
+
+        const alerts = stockDetails.filter(d => d.isAlert).length;
+        const subject = encodeURIComponent(`Relatório de Estoque CliniPay — ${now}`);
+        const body = encodeURIComponent(
+          `Relatório de Estoque — ${now}\n\n` +
+          `Alertas ativos: ${alerts}\n\n` +
+          `ESTOQUE ATUAL:\n${lines}\n\n` +
+          `Acesse o sistema: https://matheusleal7.github.io/estoque-clinicorp/`
+        );
+        window.location.href = `mailto:?subject=${subject}&body=${body}`;
+      });
+    }
+
+    // --------------------------------------------------------
     // DASHBOARD — CARDS
     // --------------------------------------------------------
     function renderCards() {
