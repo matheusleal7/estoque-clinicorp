@@ -805,13 +805,18 @@ document.addEventListener('DOMContentLoaded', () => {
         } : null;
       }
 
-      const registered = weeksData.filter(w =>
-        items.some(item => {
-          const v = w.values[item.id];
-          return v !== undefined && v !== '' && v !== '-';
-        })
-      ).length;
-      cardWeeks.textContent = registered;
+      // Valor total do estoque = soma de (unitValue × qtd atual) por item
+      const stockDetails = getCurrentStockWithDetails();
+      let totalInventoryValue = 0;
+      stockDetails.forEach(d => {
+        const cost = costsData[d.id];
+        if (cost && cost.unitValue && d.current != null) {
+          totalInventoryValue += cost.unitValue * d.current;
+        }
+      });
+      cardWeeks.textContent = totalInventoryValue.toLocaleString('pt-BR', {
+        style: 'currency', currency: 'BRL'
+      });
 
       const alertsCount = getCurrentStockWithDetails().filter(d => d.isAlert).length;
       cardAlerts.textContent = alertsCount;
